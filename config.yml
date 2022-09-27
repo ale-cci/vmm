@@ -1,0 +1,4 @@
+images:
+  ubuntu-server-arm64:
+    arch: arm64
+    url: 'https://cdimage.ubuntu.com/releases/22.04/release/ubuntu-22.04.1-live-server-arm64.iso?_ga=2.71208210.306237865.1662104519-197541680.1646935752'
