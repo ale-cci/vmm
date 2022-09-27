@@ -26,10 +26,10 @@ class Config:
 	ssh_port: int
 
 
-def sh(cmd):
+def sh(cmd, **kwargs):
 	cmd = [str(c) for c in cmd]
 	print('> ', ' '.join(cmd))
-	return subprocess.run(cmd, check=True, text=True)
+	return subprocess.run(cmd, check=True, text=True, **kwargs)
 
 def img_config(image):
 	return SCRIPT_CONFIG['images'][image]
@@ -94,21 +94,50 @@ def _run_cloudinit(port: int):
 def run_cloudinit(PORT):
 	return multiprocessing.Process(target=_run_cloudinit, args=(PORT,))
 
-def gen_cloudinit():
+
+def gen_cloudinit(**args):
 	# https://ubuntu.com/server/docs/install/autoinstall-quickstart
-	hostname = 'bubuntu'
-	username = 'ale-cci'
+	tmp_dir = './tmp'
+
+	hostname = args.get('hostname', 'bubuntu')
+	username = args.get('username', 'bubuntu')
 	pw = '$6$exDY1mhS4KUYCE/2$zmn9ToZwTKLhCw.b4/b.ZRTIZM30JZ4QrOQ2aOXJ8yk96xpcCof0kxKwuX1kqLG/ygbJ1f8wxED22bTL4F46P0'
 
+	os.makedirs(tmp_dir, exist_ok=True)
+	userdata_file = os.path.join(tmp_dir, 'user-data')
+	metadata_file = os.path.join(tmp_dir, 'meta-data')
 
-	return '\n'.join([
-		f'autoinstall:',
-		f'  version: 1',
-		f'  identity:',
-		f'    hostname: {hostname}',
-		f'    password: {pw}',
-		f'    username: {username}',
-	])
+	with open(metadata_file, 'w'):
+		pass
+
+	with open(userdata_file, 'w') as fd:
+		 fd.write('\n'.join([
+			 f'autoinstall:',
+			 f'  version: 1',
+			 f'  identity:',
+			 f'    hostname: {hostname}',
+			 f'    password: {pw}',
+			 f'    username: {username}',
+			 ]))
+
+	with open(os.path.join(tmp_dir, 'gen_iso.sh'), 'w') as fd:
+		fd.write('\n'.join([
+			'#!/usr/bin/env sh',
+			'apk add --no-cache cloud-utils-localds',
+			'cloud-localds ~/seed.iso user-data meta-data',
+		]))
+
+
+	v_tag = sh(['docker', 'volume', 'create'], stdout=subprocess.PIPE).stdout.strip()
+	c_tag = sh(['docker', 'run', '-d', '-v', f'{v_tag}:/root', '-w', '/root', 'alpine:latest', 'sh', 'gen_iso.sh'], stdout=subprocess.PIPE).stdout.strip()
+
+	for f in os.listdir(tmp_dir):
+		sh(['docker', 'cp', os.path.join(tmp_dir, f), f'{c_tag}:/root'])
+
+	sh(['docker', 'start', '-a', c_tag])
+	sh(['docker', 'cp', f'{c_tag}:/root/seed.iso', '.'])
+	sh(['docker', 'container', 'rm', c_tag])
+	sh(['docker', 'volume', 'rm', v_tag])
 
 
 def parse_flags():
