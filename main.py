@@ -76,11 +76,16 @@ def start(vm_cnf: Config):
 
 def bootstrap(vm_cnf: Config):
 	proc = run_cloudinit(1234)
-	gen_cloudinit()
+	if not os.path.isfile('seed.iso'):
+		gen_cloudinit()
 	sh(qemu_cnf(vm_cnf) + [
 		'-cdrom', vm_cnf.image_path,
+		'-kernel', 'tmp2/casper/vmlinuz',
+		'-initrd', 'tmp2/casper/initrd',
+		'-no-reboot',
+		'-append', 'autoinstall',
+		'-drive', 'file=./seed.iso,format=raw,if=virtio',
 	])
-	# proc.kill()
 	proc.join()
 
 
@@ -118,6 +123,14 @@ def gen_cloudinit(**args):
 			 f'    hostname: {hostname}',
 			 f'    password: {pw}',
 			 f'    username: {username}',
+			 f'keyboard:',
+			 f'  layout: us',
+			 f'  variant: us',
+			 f'ssh:',
+			 f'  install-server: yes',
+			 f'  authorized-keys:',
+		] + [f'  - "{key}"' for key in iter_pubkeys()] + [
+			 f'  allow-pw: no',
 			 ]))
 
 	with open(os.path.join(tmp_dir, 'gen_iso.sh'), 'w') as fd:
@@ -139,6 +152,13 @@ def gen_cloudinit(**args):
 	sh(['docker', 'container', 'rm', c_tag])
 	sh(['docker', 'volume', 'rm', v_tag])
 
+def iter_pubkeys():
+	keys_dir = os.path.expanduser('~/.ssh')
+	for f in os.listdir(keys_dir):
+		if not f.endswith('.pub'):
+			continue
+		with open(os.path.join(keys_dir, f), 'r') as fd:
+			yield fd.read().strip()
 
 def parse_flags():
 	import argparse
